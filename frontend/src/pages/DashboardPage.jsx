@@ -3,6 +3,7 @@ import api from '../services/api'
 import { enqueueAlert, getAllQueued, dequeueAlert } from '../services/alertQueue'
 import ReportsTable from '../components/ReportsTable'
 import AlertsList from '../components/AlertsList'
+import CreateAlertModal from '../components/CreateAlertModal'
 
 function DashboardPage() {
   const [reports, setReports] = useState([])
@@ -159,6 +160,14 @@ function DashboardPage() {
         onCreateAlert={handleCreateAlert}
       />
       <AlertsList alerts={alerts} />
+
+      {alertReport && (
+        <CreateAlertModal
+          report={alertReport}
+          onClose={() => setAlertReport(null)}
+          onSent={handleAlertSent}
+        />
+      )}
     </div>
   )
 }

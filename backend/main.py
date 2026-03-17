@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import time
 from urllib.parse import parse_qs
 from typing import Any, Optional
 from dotenv import load_dotenv
@@ -353,6 +354,50 @@ def persist_inbound_sms(phone: str, message: str, received_at: Optional[str]) ->
         raise_database_error(error)
 
 
+def ensure_farmer_for_report(phone: str, district: str) -> None:
+    normalized_phone = (phone or "").strip()
+    normalized_district = (district or "").strip()
+
+    if not normalized_phone:
+        return
+
+    if len(normalized_district) < 2:
+        normalized_district = "unknown"
+
+    try:
+        farmer_lookup = (
+            supabase.table("farmers")
+            .select("id,district,active")
+            .eq("phone", normalized_phone)
+            .limit(1)
+            .execute()
+        )
+    except Exception as error:
+        raise_database_error(error)
+
+    if not farmer_lookup.data:
+        try:
+            supabase.table("farmers").insert(
+                {"phone": normalized_phone, "district": normalized_district, "active": True}
+            ).execute()
+        except Exception as error:
+            raise_database_error(error)
+        return
+
+    existing = farmer_lookup.data[0]
+    update_payload: dict[str, Any] = {}
+    if not existing.get("active"):
+        update_payload["active"] = True
+    if existing.get("district") in {None, "", "unknown"} and normalized_district != "unknown":
+        update_payload["district"] = normalized_district
+
+    if update_payload:
+        try:
+            supabase.table("farmers").update(update_payload).eq("id", existing["id"]).execute()
+        except Exception as error:
+            raise_database_error(error)
+
+
 def verify_sms_gateway_signature(messages_raw: str, signature: str) -> bool:
     digest = hmac.new(
         os.getenv("SMS_GATEWAY_API_KEY", "").encode("utf-8"),
@@ -446,6 +491,8 @@ def create_report(report: ReportCreate) -> dict[str, Any]:
     payload["report_date"] = report_date
     payload["status"] = "new"
 
+    ensure_farmer_for_report(str(payload.get("phone", "")), str(payload.get("district", "")))
+
     try:
         response = supabase.table("reports").insert(payload).execute()
     except Exception as error:
@@ -505,12 +552,13 @@ def reject_report(report_id: int, authorization: Optional[str] = Header(default=
 # ---------------------------------------------------------------------------
 
 @app.post("/alerts/send", response_model=Alert, status_code=status.HTTP_201_CREATED)
-def send_alert(alert: AlertCreate) -> dict[str, Any]:
+def send_alert(alert: AlertCreate, authorization: Optional[str] = Header(default=None, alias="Authorization")) -> dict[str, Any]:
     """
     Creates an alert record, sends an SMS to every active farmer in the
     district via the SMS Gateway API, then updates the alert status and
     target_count in Supabase.
     """
+    current_user = require_auth(authorization)
     active_farmers: list[dict[str, Any]] = []
     try:
         response = (
@@ -539,6 +587,7 @@ def send_alert(alert: AlertCreate) -> dict[str, Any]:
     payload = alert.model_dump(mode="json")
     payload["target_count"] = len(phone_numbers)
     payload["status"] = final_status
+    payload["created_by"] = current_user["username"]
 
     try:
         db_response = supabase.table("alerts").insert(payload).execute()
