@@ -4,13 +4,17 @@ import { enqueueAlert, getAllQueued, dequeueAlert } from '../services/alertQueue
 import ReportsTable from '../components/ReportsTable'
 import AlertsList from '../components/AlertsList'
 import CreateAlertModal from '../components/CreateAlertModal'
+import EditReportModal from '../components/EditReportModal'
 
 function DashboardPage() {
   const [reports, setReports] = useState([])
   const [alerts, setAlerts] = useState([])
+  const [alertReport, setAlertReport] = useState(null)
+  const [editingReport, setEditingReport] = useState(null)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [queuedCount, setQueuedCount] = useState(0)
   const [flushing, setFlushing] = useState(false)
+
 
   async function fetchReports() {
     try {
@@ -133,6 +137,14 @@ function DashboardPage() {
     }
   }
 
+  function handleEditReport(report) {
+    setEditingReport(report)
+  }
+
+  function handleReportSaved() {
+    fetchReports()
+  }
+
   return (
     <div className="page">
       {!isOnline && (
@@ -158,8 +170,17 @@ function DashboardPage() {
         onVerify={handleVerify}
         onReject={handleReject}
         onCreateAlert={handleCreateAlert}
+        onEditReport={handleEditReport}
       />
       <AlertsList alerts={alerts} />
+
+      {editingReport && (
+        <EditReportModal
+          report={editingReport}
+          onClose={() => setEditingReport(null)}
+          onSaved={handleReportSaved}
+        />
+      )}
 
       {alertReport && (
         <CreateAlertModal
