@@ -207,6 +207,16 @@ class ReportCreate(BaseModel):
     date: Optional[str] = None
 
 
+class ReportUpdate(BaseModel):
+    phone: Optional[str] = None
+    district: Optional[str] = None
+    crop: Optional[str] = None
+    symptom: Optional[str] = None
+    severity: Optional[str] = None
+    date: Optional[str] = None
+    status: Optional[str] = None
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -234,6 +244,7 @@ def format_report(record: dict[str, Any]) -> dict[str, Any]:
         "district": record.get("district", ""),
         "crop": record.get("crop", ""),
         "symptom": record.get("symptom", ""),
+        "raw_message": record.get("raw_message", ""),
         "severity": record.get("severity", "Low"),
         "date": record.get("date") or record.get("report_date"),
         "status": ui_status,
@@ -347,6 +358,7 @@ def persist_inbound_sms(phone: str, message: str, received_at: Optional[str]) ->
         "crop": "",
         "severity": "low",
         "report_date": received_at or datetime.date.today().isoformat(),
+        "status": "new",
     }
     try:
         supabase.table("reports").insert(record).execute()
@@ -500,6 +512,53 @@ def create_report(report: ReportCreate) -> dict[str, Any]:
 
     if not response.data:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create report")
+
+    return format_report(response.data[0])
+
+
+@app.patch("/reports/{report_id}")
+def update_report(
+    report_id: int,
+    report: ReportUpdate,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> dict[str, Any]:
+    require_auth(authorization)
+    current_report = get_single_record("reports", report_id)
+
+    payload = report.model_dump(exclude_none=True)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No report fields provided")
+
+    if "date" in payload:
+        payload["report_date"] = payload.pop("date")
+
+    if "severity" in payload:
+        severity_value = str(payload["severity"]).strip().lower()
+        if severity_value not in {"low", "medium", "high"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid severity")
+        payload["severity"] = severity_value
+
+    if "status" in payload:
+        status_value = str(payload["status"]).strip().lower()
+        if status_value not in {"new", "classified", "approved", "rejected", "resolved"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status")
+        payload["status"] = status_value
+    elif any(field in payload for field in ("district", "crop", "symptom", "severity", "report_date")):
+        current_status = str(current_report.get("status", "new")).strip().lower()
+        if current_status in {"new", "classified"}:
+            payload["status"] = "classified"
+
+    next_phone = str(payload.get("phone", current_report.get("phone", "")))
+    next_district = str(payload.get("district", current_report.get("district", "")))
+    ensure_farmer_for_report(next_phone, next_district)
+
+    try:
+        response = supabase.table("reports").update(payload).eq("id", report_id).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
 
     return format_report(response.data[0])
 

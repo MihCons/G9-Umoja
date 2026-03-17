@@ -1,4 +1,4 @@
-function ReportsTable({ reports, onVerify, onReject, onCreateAlert }) {
+function ReportsTable({ reports, onVerify, onReject, onCreateAlert, onEditReport }) {
   return (
     <div className="card">
       <h2>Incoming Reports</h2>
@@ -48,6 +48,10 @@ function ReportsTable({ reports, onVerify, onReject, onCreateAlert }) {
                 </td>
                 <td>
                   <div className="action-buttons">
+                    <button onClick={() => onEditReport(report)}>
+                      Add Details
+                    </button>
+
                     <button
                       onClick={() => onVerify(report.id)}
                       disabled={report.status !== 'Pending'}
