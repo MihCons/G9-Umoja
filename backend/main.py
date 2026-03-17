@@ -106,6 +106,88 @@ def hash_password(password: str) -> str:
     )
 
 
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        algorithm, rounds_str, salt_b64, expected_b64 = password_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        rounds = int(rounds_str)
+        salt = base64.b64decode(salt_b64)
+        expected = base64.b64decode(expected_b64)
+    except Exception:  # noqa: BLE001
+        return False
+
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, rounds)
+    return hmac.compare_digest(derived, expected)
+
+
+def b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("utf-8").rstrip("=")
+
+
+def b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def get_auth_secret() -> str:
+    return os.getenv("AUTH_SECRET") or get_env("SUPABASE_SERVICE_ROLE_KEY")
+
+
+def create_access_token(user: dict[str, Any], ttl_seconds: int = 60 * 60 * 8) -> str:
+    payload = {
+        "sub": user["username"],
+        "role": user["role"],
+        "exp": int(time.time()) + ttl_seconds,
+    }
+    payload_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    payload_b64 = b64url_encode(payload_json)
+    signature = hmac.new(get_auth_secret().encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).digest()
+    return f"{payload_b64}.{b64url_encode(signature)}"
+
+
+def decode_access_token(token: str) -> dict[str, Any]:
+    try:
+        payload_b64, signature_b64 = token.split(".", 1)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from error
+
+    expected = hmac.new(get_auth_secret().encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).digest()
+    signature = b64url_decode(signature_b64)
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token signature")
+
+    try:
+        payload = json.loads(b64url_decode(payload_b64).decode("utf-8"))
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload") from error
+
+    if int(payload.get("exp", 0)) < int(time.time()):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
+
+    return payload
+
+
+def require_auth(authorization: Optional[str]) -> dict[str, Any]:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Bearer token")
+    token = authorization.split(" ", 1)[1].strip()
+    payload = decode_access_token(token)
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject")
+
+    try:
+        response = supabase.table("users").select("id,username,role,created_at").eq("username", username).limit(1).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
+
+    return response.data[0]
+
+
 def sanitize_user(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": record["id"],
@@ -115,18 +197,116 @@ def sanitize_user(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class ReportCreate(BaseModel):
+    phone: str
+    district: str
+    crop: str
+    symptom: str
+    severity: str = "Low"
+    date: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "reviewer"
+
+
+def format_report(record: dict[str, Any]) -> dict[str, Any]:
+    status_value = str(record.get("status", "pending")).lower()
+    ui_status = {
+        "new": "Pending",
+        "classified": "Pending",
+        "approved": "Verified",
+        "rejected": "Rejected",
+        "resolved": "Verified",
+    }.get(status_value, status_value.title())
+
+    return {
+        "id": record.get("id"),
+        "phone": record.get("phone", ""),
+        "district": record.get("district", ""),
+        "crop": record.get("crop", ""),
+        "symptom": record.get("symptom", ""),
+        "severity": record.get("severity", "Low"),
+        "date": record.get("date") or record.get("report_date"),
+        "status": ui_status,
+        "created_at": record.get("created_at"),
+    }
+
+
 @app.get("/")
 def read_root() -> dict[str, Any]:
     return {
         "message": "Umoja backend is running",
-        "resources": ["farmers", "alerts", "users"],
-        "reports_enabled": False,
+        "resources": ["farmers", "alerts", "users", "reports"],
+        "reports_enabled": True,
     }
 
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/auth/register")
+def register_user(payload: RegisterRequest) -> dict[str, Any]:
+    allowed_roles = {"admin", "reviewer", "district_officer"}
+    role = payload.role.strip().lower()
+    if role not in allowed_roles:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
+
+    user_payload = {
+        "username": payload.username,
+        "password_hash": hash_password(payload.password),
+        "role": role,
+    }
+
+    try:
+        response = supabase.table("users").insert(user_payload).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    created_user = response.data[0]
+    token = create_access_token(created_user)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": sanitize_user(created_user),
+    }
+
+
+@app.post("/auth/login")
+def login_user(payload: LoginRequest) -> dict[str, Any]:
+    try:
+        response = supabase.table("users").select("*").eq("username", payload.username).limit(1).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+
+    user = response.data[0]
+    if not verify_password(payload.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+
+    token = create_access_token(user)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": sanitize_user(user),
+    }
+
+
+@app.get("/auth/me")
+def get_me(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> dict[str, Any]:
+    user = require_auth(authorization)
+    return sanitize_user(user)
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +432,74 @@ async def receive_inbound_sms(
     return {"received": True, "count": 1}
 
 
+@app.post("/reports", status_code=status.HTTP_201_CREATED)
+def create_report(report: ReportCreate) -> dict[str, Any]:
+    payload = report.model_dump()
+    report_date = payload.pop("date", None) or datetime.date.today().isoformat()
+    symptom_text = payload.get("symptom", "")
+    severity_value = str(payload.get("severity", "low")).strip().lower()
+    if severity_value not in {"low", "medium", "high"}:
+        severity_value = "low"
+
+    payload["raw_message"] = symptom_text
+    payload["severity"] = severity_value
+    payload["report_date"] = report_date
+    payload["status"] = "new"
+
+    try:
+        response = supabase.table("reports").insert(payload).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create report")
+
+    return format_report(response.data[0])
+
+
+@app.get("/reports")
+def get_reports(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> list[dict[str, Any]]:
+    require_auth(authorization)
+    try:
+        response = supabase.table("reports").select("*").order("id", desc=True).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    return [format_report(record) for record in (response.data or [])]
+
+
+@app.put("/reports/{report_id}/verify")
+def verify_report(report_id: int, authorization: Optional[str] = Header(default=None, alias="Authorization")) -> dict[str, Any]:
+    require_auth(authorization)
+    get_single_record("reports", report_id)
+
+    try:
+        response = supabase.table("reports").update({"status": "approved"}).eq("id", report_id).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    return format_report(response.data[0])
+
+
+@app.put("/reports/{report_id}/reject")
+def reject_report(report_id: int, authorization: Optional[str] = Header(default=None, alias="Authorization")) -> dict[str, Any]:
+    require_auth(authorization)
+    get_single_record("reports", report_id)
+
+    try:
+        response = supabase.table("reports").update({"status": "rejected"}).eq("id", report_id).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    return format_report(response.data[0])
+
+
 # ---------------------------------------------------------------------------
 # Send alert via SMS Gateway  (Frontend -> POST /alerts/send)
 # ---------------------------------------------------------------------------
@@ -353,7 +601,8 @@ def delete_farmer(farmer_id: int) -> Response:
 
 
 @app.get("/alerts", response_model=list[Alert])
-def get_alerts() -> list[dict[str, Any]]:
+def get_alerts(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> list[dict[str, Any]]:
+    require_auth(authorization)
     try:
         response = supabase.table("alerts").select("*").order("alert_date", desc=True).execute()
         return response.data or []
@@ -370,6 +619,7 @@ def get_alert(alert_id: int) -> dict[str, Any]:
 def create_alert(alert: AlertCreate) -> dict[str, Any]:
     payload = alert.model_dump(mode="json")
     payload["target_count"] = count_active_farmers(payload["district"])
+    payload["created_by"] = current_user["username"]
 
     try:
         response = supabase.table("alerts").insert(payload).execute()

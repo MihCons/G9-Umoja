@@ -1,0 +1,3 @@
+## Run project instructions
+
+Run this in PowerShell from the project root: `if (-not (Test-Path ".venv")) { python -m venv .venv }; & ".\.venv\Scripts\Activate.ps1"; pip install -r ".\backend\requirements.txt"; Start-Process powershell -ArgumentList '-NoExit','-Command','Set-Location ".\backend"; & "..\.venv\Scripts\Activate.ps1"; python -m uvicorn main:app --reload'; Set-Location ".\frontend"; npm i; npm run dev`
