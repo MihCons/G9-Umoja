@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../services/api'
-import { enqueueAlert, getAllQueued, dequeueAlert, clearQueue } from '../services/alertQueue'
+import { enqueueAlert, getAllQueued, dequeueAlert } from '../services/alertQueue'
 import ReportsTable from '../components/ReportsTable'
 import AlertsList from '../components/AlertsList'
 import CreateAlertModal from '../components/CreateAlertModal'
@@ -11,12 +11,6 @@ function DashboardPage() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [queuedCount, setQueuedCount] = useState(0)
   const [flushing, setFlushing] = useState(false)
-  const [queuePaused, setQueuePaused] = useState(false)
-  const queuePausedRef = useRef(false)
-  const [selectedReportIds, setSelectedReportIds] = useState([])
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [modalSending, setModalSending] = useState(false)
-  const [modalError, setModalError] = useState('')
 
   async function fetchReports() {
     try {
@@ -42,11 +36,8 @@ function DashboardPage() {
   }
 
   async function flushQueue() {
-    if (queuePausedRef.current) return
-
     const items = await getAllQueued()
     if (!items.length) return
-
     setFlushing(true)
     for (const item of items) {
       // eslint-disable-next-line no-unused-vars
@@ -61,78 +52,7 @@ function DashboardPage() {
     setFlushing(false)
     syncQueueCount()
     fetchAlerts()
-    fetchReports()
   }
-
-  async function handleStopAndClearQueue() {
-    setQueuePaused(true)
-    queuePausedRef.current = true
-    await clearQueue()
-    setQueuedCount(0)
-    setFlushing(false)
-  }
-
-  function handleResumeQueue() {
-    setQueuePaused(false)
-    queuePausedRef.current = false
-    if (navigator.onLine) {
-      flushQueue()
-    }
-  }
-
-  function handleToggleReport(reportId) {
-    setSelectedReportIds((prev) =>
-      prev.includes(reportId) ? prev.filter((id) => id !== reportId) : [...prev, reportId],
-    )
-  }
-
-  function handleSelectAllReports() {
-    if (selectedReportIds.length === reports.length) {
-      setSelectedReportIds([])
-      return
-    }
-    setSelectedReportIds(reports.map((report) => report.id))
-  }
-
-  function handleOpenCombinedAlert() {
-    if (selectedReportIds.length === 0) return
-    setModalError('')
-    setIsModalOpen(true)
-  }
-
-  async function handleSendCombinedAlert(alertData) {
-    setModalError('')
-    setModalSending(true)
-
-    if (!navigator.onLine || queuePaused) {
-      await enqueueAlert(alertData)
-      await syncQueueCount()
-      setModalSending(false)
-      setIsModalOpen(false)
-      setSelectedReportIds([])
-      return
-    }
-
-    try {
-      await api.post('/alerts/send', alertData)
-      setIsModalOpen(false)
-      setSelectedReportIds([])
-      fetchAlerts()
-      fetchReports()
-    } catch (error) {
-      await enqueueAlert(alertData)
-      await syncQueueCount()
-      setModalError('Send failed, alert added to offline queue.')
-      setIsModalOpen(false)
-      setSelectedReportIds([])
-    } finally {
-      setModalSending(false)
-    }
-  }
-
-  useEffect(() => {
-    queuePausedRef.current = queuePaused
-  }, [queuePaused])
 
   useEffect(() => {
     fetchReports()
@@ -187,40 +107,45 @@ function DashboardPage() {
     }
   }
 
-  const selectedReports = reports.filter((report) => selectedReportIds.includes(report.id))
+  async function handleCreateAlert(report) {
+    const alertData = {
+      district: report.district,
+      message: `Warning for ${report.district}: possible ${report.crop} disease reported. Symptom: ${report.symptom}.`,
+      alert_date: new Date().toISOString().split('T')[0],
+      status: 'draft',
+      created_by: 'system',
+    }
+
+    if (!navigator.onLine) {
+      await enqueueAlert(alertData)
+      syncQueueCount()
+      return
+    }
+
+    try {
+      await api.post('/alerts/send', alertData)
+      fetchAlerts()
+      fetchReports()
+    } catch (error) {
+      console.error('Alert send failed, queuing for retry:', error)
+      await enqueueAlert(alertData)
+      syncQueueCount()
+    }
+  }
 
   return (
     <div className="page">
       {!isOnline && (
         <div className="offline-banner">
-          <span>
-            You are offline — alerts will be queued and sent automatically when the connection is restored.
-            {queuedCount > 0 && ` (${queuedCount} queued)`}
-          </span>
-          {queuedCount > 0 && (
-            <button type="button" className="queue-clear-btn" onClick={handleStopAndClearQueue} aria-label="Stop queue and clear all queued alerts">
-              ×
-            </button>
-          )}
+          You are offline — alerts will be queued and sent automatically when the connection is restored.
+          {queuedCount > 0 && ` (${queuedCount} queued)`}
         </div>
       )}
       {isOnline && queuedCount > 0 && (
         <div className="sync-banner">
-          <span>
-            {queuePaused
-              ? `${queuedCount} queued alert(s) paused`
-              : flushing
-              ? `Sending ${queuedCount} queued alert(s)…`
-              : `${queuedCount} queued alert(s) — reconnected, sending now…`}
-          </span>
-          <button type="button" className="queue-clear-btn" onClick={handleStopAndClearQueue} aria-label="Stop queue and clear all queued alerts">
-            ×
-          </button>
-          {queuePaused && (
-            <button type="button" className="queue-resume-btn" onClick={handleResumeQueue}>
-              Resume Queue
-            </button>
-          )}
+          {flushing
+            ? `Sending ${queuedCount} queued alert(s)…`
+            : `${queuedCount} queued alert(s) — reconnected, sending now…`}
         </div>
       )}
       <section className="hero-banner card dashboard-hero">
@@ -230,16 +155,13 @@ function DashboardPage() {
       </section>
       <ReportsTable
         reports={reports}
-        selectedReportIds={selectedReportIds}
-        onToggleReport={handleToggleReport}
-        onSelectAll={handleSelectAllReports}
         onVerify={handleVerify}
         onReject={handleReject}
-        onCreateCombinedAlert={handleOpenCombinedAlert}
+        onCreateAlert={handleCreateAlert}
       />
       <AlertsList alerts={alerts} />
 
-      {isModalOpen && (
+      {alertReport && (
         <CreateAlertModal
           report={alertReport}
           onClose={() => setAlertReport(null)}

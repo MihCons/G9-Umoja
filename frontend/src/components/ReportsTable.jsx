@@ -1,26 +1,7 @@
-function ReportsTable({
-  reports,
-  selectedReportIds,
-  onToggleReport,
-  onSelectAll,
-  onVerify,
-  onReject,
-  onCreateCombinedAlert,
-}) {
-  const selectedCount = selectedReportIds.length
-  const canCreateCombined = selectedCount > 0
-
+function ReportsTable({ reports, onVerify, onReject, onCreateAlert }) {
   return (
     <div className="card">
       <h2>Incoming Reports</h2>
-      <div className="reports-toolbar">
-        <button type="button" onClick={onSelectAll} disabled={reports.length === 0}>
-          {selectedCount === reports.length && reports.length > 0 ? 'Clear Selection' : 'Select All'}
-        </button>
-        <button type="button" onClick={onCreateCombinedAlert} disabled={!canCreateCombined}>
-          Create Alert from Selected ({selectedCount})
-        </button>
-      </div>
 
       <table>
         <thead>
@@ -39,7 +20,7 @@ function ReportsTable({
         <tbody>
           {reports.length === 0 ? (
             <tr>
-              <td colSpan="9">
+              <td colSpan="8">
                 <div className="empty-message">No reports submitted yet.</div>
               </td>
             </tr>
@@ -79,6 +60,10 @@ function ReportsTable({
                       disabled={report.status !== 'Pending'}
                     >
                       Reject
+                    </button>
+
+                    <button onClick={() => onCreateAlert(report)}>
+                      Create Alert
                     </button>
                   </div>
                 </td>
