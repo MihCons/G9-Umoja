@@ -1,15 +1,20 @@
 import base64
+import datetime
 import hashlib
 import os
-from typing import Any
-
+from typing import Any, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Response, status
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from postgrest.exceptions import APIError
 from supabase import Client, create_client
-
-from models import Alert, AlertCreate, AlertUpdate, Farmer, FarmerCreate, FarmerUpdate, User, UserCreate, UserUpdate
+try:
+    from backend.models import Alert, AlertCreate, AlertUpdate, Farmer, FarmerCreate, FarmerUpdate, User, UserCreate, UserUpdate
+    from backend.sms_gateway import SMSGatewayClient
+except ModuleNotFoundError:
+    from models import Alert, AlertCreate, AlertUpdate, Farmer, FarmerCreate, FarmerUpdate, User, UserCreate, UserUpdate  # type: ignore[no-redef]
+    from sms_gateway import SMSGatewayClient  # type: ignore[no-redef]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -36,6 +41,11 @@ def create_supabase_client() -> Client:
 
 app = FastAPI(title="Umoja API", version="1.0.0")
 supabase = create_supabase_client()
+sms_client = SMSGatewayClient(
+    base_url=os.getenv("SMS_GATEWAY_BASE_URL", ""),
+    api_key=os.getenv("SMS_GATEWAY_API_KEY", ""),
+    device_ids=os.getenv("SMS_GATEWAY_DEVICE_IDS", ""),
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,7 +63,7 @@ def raise_database_error(error: Exception) -> None:
 
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Unexpected database error",
+        detail=f"Unexpected database error: {error}",
     ) from error
 
 
@@ -114,6 +124,108 @@ def read_root() -> dict[str, Any]:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Inbound SMS  (SMS Gateway App -> POST /sms/inbound)
+# ---------------------------------------------------------------------------
+
+class InboundSMS(BaseModel):
+    """Payload sent by the SMS Gateway App webhook."""
+    phone: str
+    message: str
+    received_at: Optional[str] = None
+
+
+@app.post("/sms/inbound", status_code=status.HTTP_200_OK)
+def receive_inbound_sms(payload: InboundSMS) -> dict[str, Any]:
+    """
+    Webhook called by the SMS Gateway App for every incoming SMS.
+        - Upserts the farmer (creates if unknown, otherwise leaves existing record).
+        - Saves the raw SMS as a pending report in the `reports` table.
+            Staff manually fills in crop/district/severity during review.
+    """
+    # Ensure farmer exists (insert only if phone not found)
+    try:
+        farmer_lookup = (
+            supabase.table("farmers")
+            .select("id")
+            .eq("phone", payload.phone)
+            .limit(1)
+            .execute()
+        )
+        if not farmer_lookup.data:
+            supabase.table("farmers").insert(
+                {"phone": payload.phone, "district": "unknown", "active": True}
+            ).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    # Save raw SMS as a pending report — structured fields filled in by staff later
+    record = {
+        "phone": payload.phone,
+        "raw_message": payload.message,
+        "symptom": payload.message,   # raw SMS text until staff parses it
+        "district": "",
+        "crop": "",
+        "severity": "unknown",
+        "report_date": payload.received_at or datetime.date.today().isoformat(),
+        "status": "pending",
+    }
+    try:
+        supabase.table("reports").insert(record).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    return {"received": True}
+
+
+# ---------------------------------------------------------------------------
+# Send alert via SMS Gateway  (Frontend -> POST /alerts/send)
+# ---------------------------------------------------------------------------
+
+@app.post("/alerts/send", response_model=Alert, status_code=status.HTTP_201_CREATED)
+def send_alert(alert: AlertCreate) -> dict[str, Any]:
+    """
+    Creates an alert record, sends an SMS to every active farmer in the
+    district via the SMS Gateway API, then updates the alert status and
+    target_count in Supabase.
+    """
+    active_farmers: list[dict[str, Any]] = []
+    try:
+        response = (
+            supabase.table("farmers")
+            .select("phone")
+            .eq("district", alert.district)
+            .eq("active", True)
+            .execute()
+        )
+        active_farmers = response.data or []
+    except Exception as error:
+        raise_database_error(error)
+
+    phone_numbers = [f["phone"] for f in active_farmers]
+
+    # Send SMS (best-effort: we record the alert even if gateway is down)
+    sms_success = False
+    if phone_numbers and sms_client.configured:
+        try:
+            sms_client.send_bulk(phone_numbers, alert.message)
+            sms_success = True
+        except Exception:  # noqa: BLE001
+            sms_success = False
+
+    final_status = "sent" if sms_success else "failed"
+    payload = alert.model_dump()
+    payload["target_count"] = len(phone_numbers)
+    payload["status"] = final_status
+
+    try:
+        db_response = supabase.table("alerts").insert(payload).execute()
+    except Exception as error:
+        raise_database_error(error)
+
+    return db_response.data[0]
 
 
 @app.get("/farmers", response_model=list[Farmer])
