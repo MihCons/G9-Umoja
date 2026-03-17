@@ -1,11 +1,31 @@
-function ReportsTable({ reports, onVerify, onReject, onCreateAlert }) {
+function ReportsTable({
+  reports,
+  selectedReportIds,
+  onToggleReport,
+  onSelectAll,
+  onVerify,
+  onReject,
+  onCreateCombinedAlert,
+}) {
+  const selectedCount = selectedReportIds.length
+  const canCreateCombined = selectedCount > 0
+
   return (
     <div className="card">
       <h2>Incoming Reports</h2>
+      <div className="reports-toolbar">
+        <button type="button" onClick={onSelectAll} disabled={reports.length === 0}>
+          {selectedCount === reports.length && reports.length > 0 ? 'Clear Selection' : 'Select All'}
+        </button>
+        <button type="button" onClick={onCreateCombinedAlert} disabled={!canCreateCombined}>
+          Create Alert from Selected ({selectedCount})
+        </button>
+      </div>
 
       <table>
         <thead>
           <tr>
+            <th>Select</th>
             <th>Phone</th>
             <th>District</th>
             <th>Crop</th>
@@ -20,13 +40,21 @@ function ReportsTable({ reports, onVerify, onReject, onCreateAlert }) {
         <tbody>
           {reports.length === 0 ? (
             <tr>
-              <td colSpan="8">
+              <td colSpan="9">
                 <div className="empty-message">No reports submitted yet.</div>
               </td>
             </tr>
           ) : (
             reports.map((report) => (
               <tr key={report.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selectedReportIds.includes(report.id)}
+                    onChange={() => onToggleReport(report.id)}
+                    aria-label={`Select report ${report.id}`}
+                  />
+                </td>
                 <td>{report.phone}</td>
                 <td>{report.district}</td>
                 <td>{report.crop}</td>
@@ -60,10 +88,6 @@ function ReportsTable({ reports, onVerify, onReject, onCreateAlert }) {
                       disabled={report.status !== 'Pending'}
                     >
                       Reject
-                    </button>
-
-                    <button onClick={() => onCreateAlert(report)}>
-                      Create Alert
                     </button>
                   </div>
                 </td>
