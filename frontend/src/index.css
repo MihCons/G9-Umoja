@@ -1,0 +1,294 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --green-dark: #184d3b;
+  --green: #1f6a50;
+  --green-light: #e8f3ee;
+  --bg: #f4f7f6;
+  --card: #ffffff;
+  --text: #1f2933;
+  --muted: #6b7280;
+  --border: #d9e2e1;
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+  --radius: 14px;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.navbar {
+  background: var(--green-dark);
+  color: white;
+  padding: 18px 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: var(--shadow);
+}
+
+.navbar h2 {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.nav-links {
+  display: flex;
+  gap: 20px;
+}
+
+.nav-links a {
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: 0.2s ease;
+}
+
+.nav-links a:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.page {
+  padding: 28px;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+  border: 1px solid #edf2f1;
+}
+
+.card h2 {
+  margin-bottom: 18px;
+  font-size: 2rem;
+  color: #132b21;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fcfdfd;
+  outline: none;
+  transition: 0.2s ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(31, 106, 80, 0.12);
+}
+
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+button {
+  border: none;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: 0.2s ease;
+}
+
+.form button {
+  background: var(--green-dark);
+  color: white;
+  margin-top: 4px;
+}
+
+.form button:hover {
+  background: #133c2e;
+}
+
+.success-message {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #e9f8ef;
+  color: #1f7a3d;
+  font-weight: 600;
+  border: 1px solid #c7ead1;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+thead th {
+  background: #eef4f1;
+  color: #22312c;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 14px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+tbody td {
+  padding: 14px 12px;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+  background: white;
+}
+
+tbody tr:hover td {
+  background: #fafcfb;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-buttons button {
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.action-buttons button:nth-child(1) {
+  background: #1f6a50;
+  color: white;
+}
+
+.action-buttons button:nth-child(1):hover {
+  background: #18533f;
+}
+
+.action-buttons button:nth-child(2) {
+  background: #b34141;
+  color: white;
+}
+
+.action-buttons button:nth-child(2):hover {
+  background: #922f2f;
+}
+
+.action-buttons button:nth-child(3) {
+  background: #2c5b8f;
+  color: white;
+}
+
+.action-buttons button:nth-child(3):hover {
+  background: #22486f;
+}
+
+.action-buttons button:disabled {
+  background: #cfd8d5;
+  color: #6f7a77;
+  cursor: not-allowed;
+}
+
+.alert-item {
+  background: #fbfcfc;
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--green);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 14px;
+}
+
+.alert-item p {
+  margin-bottom: 6px;
+}
+
+.alert-item p:last-child {
+  margin-bottom: 0;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-pending {
+  background: #fff4cc;
+  color: #8a6700;
+}
+
+.status-verified {
+  background: #dff5e8;
+  color: #1f7a4d;
+}
+
+.status-rejected {
+  background: #fde3e3;
+  color: #b33b3b;
+}
+
+.status-sent {
+  background: #e2ecfb;
+  color: #295ea8;
+}
+
+.empty-message {
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
+  background: #fafcfb;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+@media (max-width: 900px) {
+  .navbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .nav-links {
+    flex-wrap: wrap;
+  }
+
+  .page {
+    padding: 18px;
+  }
+
+  .card {
+    padding: 18px;
+  }
+
+  .card h2 {
+    font-size: 1.5rem;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}
