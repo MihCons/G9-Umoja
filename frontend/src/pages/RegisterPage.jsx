@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 function getErrorMessage(requestError) {
@@ -14,15 +14,14 @@ function getErrorMessage(requestError) {
 }
 
 function RegisterPage() {
-  const navigate = useNavigate()
   const { isAuthenticated, register } = useAuth()
   const [formData, setFormData] = useState({
     username: '',
     password: '',
-    role: 'reviewer',
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />
@@ -63,7 +62,9 @@ function RegisterPage() {
       <div className="auth-panel card">
         <p className="auth-eyebrow">Umoja Staff Access</p>
         <h1>Create Account</h1>
-        <p className="auth-subtitle">Register a dashboard user with the right operational role.</p>
+        <p className="auth-subtitle">
+          Register for dashboard access. After registering, email Umoja@cropalert.com and we will verify your account in the database.
+        </p>
         <form onSubmit={onSubmit} className="form">
           <input
             name="username"
@@ -82,11 +83,7 @@ function RegisterPage() {
             minLength={8}
             required
           />
-          <select name="role" value={formData.role} onChange={onChange}>
-            <option value="reviewer">Reviewer</option>
-            <option value="district_officer">District Officer</option>
-            <option value="admin">Admin</option>
-          </select>
+          {successMessage ? <p className="success-message">{successMessage}</p> : null}
           {error ? <p className="error-message">{error}</p> : null}
           <button type="submit" disabled={submitting}>
             {submitting ? 'Creating account...' : 'Create Account'}

@@ -114,6 +114,20 @@ function CreateAlertModal({ report, onClose, onSent }) {
             <span className="char-count">{message.length} / 1000</span>
           </div>
 
+          {requiresManualCrop ? (
+            <div className="form-group">
+              <label htmlFor="alert-manual-crop">Manual Crop (for unknown SMS crop)</label>
+              <input
+                id="alert-manual-crop"
+                type="text"
+                value={manualCrop}
+                onChange={(e) => setManualCrop(e.target.value)}
+                placeholder="Enter crop name (e.g. maize)"
+                required
+              />
+            </div>
+          ) : null}
+
           <div className="form-group">
             <label htmlFor="alert-date">Alert Date</label>
             <input

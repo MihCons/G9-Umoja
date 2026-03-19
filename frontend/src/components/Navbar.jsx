@@ -12,6 +12,7 @@ function Navbar() {
       </div>
       <div className="nav-links">
         <Link to="/">Farmer Report</Link>
+        <Link to="/confirmed-diseases">Confirmed Diseases</Link>
         {isAuthenticated ? <Link to="/dashboard">Dashboard</Link> : null}
         {isAuthenticated ? (
           <>
