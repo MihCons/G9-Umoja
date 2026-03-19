@@ -2,6 +2,17 @@ import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
+function getErrorMessage(requestError) {
+  const detail = requestError?.response?.data?.detail
+  if (Array.isArray(detail)) {
+    return detail.map((item) => item?.msg || String(item)).join(' ')
+  }
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail
+  }
+  return 'Registration failed. Try a different username.'
+}
+
 function RegisterPage() {
   const navigate = useNavigate()
   const { isAuthenticated, register } = useAuth()
@@ -25,11 +36,23 @@ function RegisterPage() {
     event.preventDefault()
     setSubmitting(true)
     setError('')
+
+    const payload = {
+      ...formData,
+      username: formData.username.trim(),
+    }
+
+    if (payload.username.length < 3) {
+      setError('Username must be at least 3 characters.')
+      setSubmitting(false)
+      return
+    }
+
     try {
-      await register(formData)
+      await register(payload)
       navigate('/dashboard', { replace: true })
     } catch (requestError) {
-      setError(requestError?.response?.data?.detail || 'Registration failed. Try a different username.')
+      setError(getErrorMessage(requestError))
     } finally {
       setSubmitting(false)
     }
