@@ -1,8 +1,12 @@
 import { useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 function getErrorMessage(requestError) {
+  if (requestError?.response?.status === 409) {
+    return 'Deze gebruikersnaam bestaat al. Kies een andere gebruikersnaam of log in.'
+  }
+
   const detail = requestError?.response?.data?.detail
   if (Array.isArray(detail)) {
     return detail.map((item) => item?.msg || String(item)).join(' ')
@@ -14,6 +18,7 @@ function getErrorMessage(requestError) {
 }
 
 function RegisterPage() {
+  const navigate = useNavigate()
   const { isAuthenticated, register } = useAuth()
   const [formData, setFormData] = useState({
     username: '',
@@ -21,7 +26,6 @@ function RegisterPage() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [successMessage, setSuccessMessage] = useState('')
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />
@@ -83,7 +87,6 @@ function RegisterPage() {
             minLength={8}
             required
           />
-          {successMessage ? <p className="success-message">{successMessage}</p> : null}
           {error ? <p className="error-message">{error}</p> : null}
           <button type="submit" disabled={submitting}>
             {submitting ? 'Creating account...' : 'Create Account'}
