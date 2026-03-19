@@ -286,8 +286,26 @@ def health_check() -> dict[str, str]:
 
 @app.post("/auth/register")
 def register_user(payload: RegisterRequest) -> dict[str, Any]:
+    normalized_username = payload.username.strip()
+    if len(normalized_username) < 3:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username must be at least 3 characters")
+
+    try:
+        existing_user = (
+            supabase.table("users")
+            .select("id")
+            .eq("username", normalized_username)
+            .limit(1)
+            .execute()
+        )
+    except Exception as error:
+        raise_database_error(error)
+
+    if existing_user.data:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+
     user_payload = {
-        "username": payload.username,
+        "username": normalized_username,
         "password_hash": hash_password(payload.password),
         "role": "reviewer",
         "verified": False,
@@ -296,6 +314,10 @@ def register_user(payload: RegisterRequest) -> dict[str, Any]:
     try:
         response = supabase.table("users").insert(user_payload).execute()
     except Exception as error:
+        if isinstance(error, APIError):
+            error_text = f"{error.message or ''} {getattr(error, 'details', '')}"
+            if "users_username_key" in error_text or "duplicate key value" in error_text.lower():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists") from error
         raise_database_error(error)
 
     created_user = response.data[0]
