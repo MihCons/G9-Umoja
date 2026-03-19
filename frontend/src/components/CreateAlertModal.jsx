@@ -4,6 +4,7 @@ function CreateAlertModal({ reports, onClose, onSend, sending = false, error = '
   const today = new Date().toISOString().split('T')[0]
   const [message, setMessage] = useState('')
   const [alertDate, setAlertDate] = useState(today)
+  const [manualCrop, setManualCrop] = useState('')
 
   const selectedReports = reports || []
   const districts = useMemo(
@@ -13,6 +14,11 @@ function CreateAlertModal({ reports, onClose, onSend, sending = false, error = '
   const district = districts.length === 1 ? districts[0] : ''
   const invalidSelection = selectedReports.length === 0 || !district
   const reportIds = selectedReports.map((item) => item.id)
+  const unknownCropCount = selectedReports.filter((item) => {
+    const cropValue = String(item?.crop || '').trim().toLowerCase()
+    return cropValue === '' || cropValue === 'unknown crop' || cropValue === 'unknown'
+  }).length
+  const requiresManualCrop = unknownCropCount > 0
 
   // Close on Escape key
   useEffect(() => {
@@ -29,9 +35,12 @@ function CreateAlertModal({ reports, onClose, onSend, sending = false, error = '
       return
     }
 
+    const normalizedCrop = manualCrop.trim()
+    const finalMessage = normalizedCrop ? `Crop: ${normalizedCrop}\n${message}` : message
+
     await onSend({
       district,
-      message,
+      message: finalMessage,
       alert_date: alertDate,
       status: 'draft',
       created_by: 'system',
@@ -96,6 +105,20 @@ function CreateAlertModal({ reports, onClose, onSend, sending = false, error = '
             <span className="char-count">{message.length} / 1000</span>
           </div>
 
+          {requiresManualCrop ? (
+            <div className="form-group">
+              <label htmlFor="alert-manual-crop">Manual Crop (for unknown SMS crop)</label>
+              <input
+                id="alert-manual-crop"
+                type="text"
+                value={manualCrop}
+                onChange={(e) => setManualCrop(e.target.value)}
+                placeholder="Enter crop name (e.g. maize)"
+                required
+              />
+            </div>
+          ) : null}
+
           <div className="form-group">
             <label htmlFor="alert-date">Alert Date</label>
             <input
@@ -113,6 +136,12 @@ function CreateAlertModal({ reports, onClose, onSend, sending = false, error = '
             </div>
           )}
 
+          {requiresManualCrop && !manualCrop.trim() ? (
+            <div className="modal-warning">
+              Some selected reports have unknown crop. Please enter the crop before sending the alert.
+            </div>
+          ) : null}
+
           {error && <div className="error-message">{error}</div>}
 
           {/* Actions */}
@@ -120,7 +149,11 @@ function CreateAlertModal({ reports, onClose, onSend, sending = false, error = '
             <button type="button" className="btn-secondary" onClick={onClose} disabled={sending}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={sending || invalidSelection || !message.trim()}>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={sending || invalidSelection || !message.trim() || (requiresManualCrop && !manualCrop.trim())}
+            >
               {sendLabel}
             </button>
           </div>

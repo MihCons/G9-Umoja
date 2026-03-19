@@ -5,6 +5,7 @@ import FarmerPage from './pages/FarmerPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import ConfirmedDiseasesPage from './pages/ConfirmedDiseasesPage'
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
       <Navbar />
       <Routes>
         <Route path="/" element={<FarmerPage />} />
+        <Route path="/confirmed-diseases" element={<ConfirmedDiseasesPage />} />
         <Route
           path="/dashboard"
           element={

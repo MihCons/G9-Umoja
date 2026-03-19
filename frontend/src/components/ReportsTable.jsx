@@ -2,11 +2,14 @@ function ReportsTable({
   title = 'Incoming Reports',
   emptyMessage = 'No reports submitted yet.',
   reports,
+  selectedReportIds = [],
+  onToggleReport,
   onVerify,
   onReject,
-  onCreateAlert,
   onEditReport,
 }) {
+  const showSelection = typeof onToggleReport === 'function'
+
   return (
     <div className="card">
       <h2>{title}</h2>
@@ -14,7 +17,7 @@ function ReportsTable({
       <table>
         <thead>
           <tr>
-            <th>Select</th>
+            {showSelection && <th>Select</th>}
             <th>Phone</th>
             <th>District</th>
             <th>Crop</th>
@@ -29,21 +32,29 @@ function ReportsTable({
         <tbody>
           {reports.length === 0 ? (
             <tr>
-              <td colSpan="8">
+              <td colSpan={showSelection ? 9 : 8}>
                 <div className="empty-message">{emptyMessage}</div>
               </td>
             </tr>
           ) : (
             reports.map((report) => (
               <tr key={report.id}>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={selectedReportIds.includes(report.id)}
-                    onChange={() => onToggleReport(report.id)}
-                    aria-label={`Select report ${report.id}`}
-                  />
-                </td>
+                {showSelection && (
+                  <td>
+                    {(() => {
+                      const isRejected = report.status === 'Rejected'
+                      return (
+                    <input
+                      type="checkbox"
+                      checked={selectedReportIds.includes(report.id)}
+                      onChange={() => onToggleReport(report)}
+                      disabled={isRejected}
+                      aria-label={`Select report ${report.id}`}
+                    />
+                      )
+                    })()}
+                  </td>
+                )}
                 <td>{report.phone}</td>
                 <td>{report.district}</td>
                 <td>{report.crop}</td>
@@ -81,13 +92,6 @@ function ReportsTable({
                       disabled={report.status !== 'Pending'}
                     >
                       Reject
-                    </button>
-
-                    <button
-                      onClick={() => onCreateAlert(report)}
-                      disabled={!report.district || !report.crop || !report.symptom}
-                    >
-                      Create Alert
                     </button>
                   </div>
                 </td>

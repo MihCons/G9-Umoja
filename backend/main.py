@@ -179,14 +179,21 @@ def require_auth(authorization: Optional[str]) -> dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject")
 
     try:
-        response = supabase.table("users").select("id,username,role,created_at").eq("username", username).limit(1).execute()
+        response = supabase.table("users").select("id,username,role,verified,created_at").eq("username", username).limit(1).execute()
     except Exception as error:
         raise_database_error(error)
 
     if not response.data:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
 
-    return response.data[0]
+    user = response.data[0]
+    if not bool(user.get("verified", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account not verified yet. Please contact Umoja@cropalert.com.",
+        )
+
+    return user
 
 
 def sanitize_user(record: dict[str, Any]) -> dict[str, Any]:
@@ -194,6 +201,7 @@ def sanitize_user(record: dict[str, Any]) -> dict[str, Any]:
         "id": record["id"],
         "username": record["username"],
         "role": record["role"],
+        "verified": bool(record.get("verified", False)),
         "created_at": record.get("created_at"),
     }
 
@@ -278,15 +286,11 @@ def health_check() -> dict[str, str]:
 
 @app.post("/auth/register")
 def register_user(payload: RegisterRequest) -> dict[str, Any]:
-    allowed_roles = {"admin", "reviewer", "district_officer"}
-    role = payload.role.strip().lower()
-    if role not in allowed_roles:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
-
     user_payload = {
         "username": payload.username,
         "password_hash": hash_password(payload.password),
-        "role": role,
+        "role": "reviewer",
+        "verified": False,
     }
 
     try:
@@ -295,10 +299,8 @@ def register_user(payload: RegisterRequest) -> dict[str, Any]:
         raise_database_error(error)
 
     created_user = response.data[0]
-    token = create_access_token(created_user)
     return {
-        "access_token": token,
-        "token_type": "bearer",
+        "message": "Registration submitted. Please email Umoja@cropalert.com for account verification.",
         "user": sanitize_user(created_user),
     }
 
@@ -316,6 +318,12 @@ def login_user(payload: LoginRequest) -> dict[str, Any]:
     user = response.data[0]
     if not verify_password(payload.password, user.get("password_hash", "")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+
+    if not bool(user.get("verified", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account not verified yet. Please email Umoja@cropalert.com so we can verify you in the database.",
+        )
 
     token = create_access_token(user)
     return {

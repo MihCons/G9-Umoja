@@ -43,10 +43,14 @@ export function AuthProvider({ children }) {
   async function register(payload) {
     const response = await api.post('/auth/register', payload)
     const nextToken = response.data.access_token
-    setStoredToken(nextToken)
-    setToken(nextToken)
-    setUser(response.data.user)
-    return response.data.user
+    if (nextToken) {
+      setStoredToken(nextToken)
+      setToken(nextToken)
+      setUser(response.data.user)
+      return response.data.user
+    }
+
+    return response.data
   }
 
   function logout() {
