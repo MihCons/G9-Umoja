@@ -218,6 +218,14 @@ class RegisterRequest(BaseModel):
     role: str = "reviewer"
 
 
+def normalize_username(username: str) -> str:
+    return username.strip().lower()
+
+
+def is_unique_violation(error: Exception) -> bool:
+    return isinstance(error, APIError) and str(getattr(error, "code", "")) == "23505"
+
+
 def format_report(record: dict[str, Any]) -> dict[str, Any]:
     status_value = str(record.get("status", "pending")).lower()
     ui_status = {
@@ -264,12 +272,18 @@ def health_check() -> dict[str, str]:
 @app.post("/auth/register")
 def register_user(payload: RegisterRequest) -> dict[str, Any]:
     allowed_roles = {"admin", "reviewer", "district_officer"}
+    username = normalize_username(payload.username)
     role = payload.role.strip().lower()
+
+    if len(username) < 3:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username must be at least 3 characters")
+    if len(payload.password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
     if role not in allowed_roles:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
 
     user_payload = {
-        "username": payload.username,
+        "username": username,
         "password_hash": hash_password(payload.password),
         "role": role,
     }
@@ -277,6 +291,8 @@ def register_user(payload: RegisterRequest) -> dict[str, Any]:
     try:
         response = supabase.table("users").insert(user_payload).execute()
     except Exception as error:
+        if is_unique_violation(error):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists") from error
         raise_database_error(error)
 
     created_user = response.data[0]
@@ -290,8 +306,9 @@ def register_user(payload: RegisterRequest) -> dict[str, Any]:
 
 @app.post("/auth/login")
 def login_user(payload: LoginRequest) -> dict[str, Any]:
+    username = normalize_username(payload.username)
     try:
-        response = supabase.table("users").select("*").eq("username", payload.username).limit(1).execute()
+        response = supabase.table("users").select("*").eq("username", username).limit(1).execute()
     except Exception as error:
         raise_database_error(error)
 
