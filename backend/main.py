@@ -242,6 +242,17 @@ def is_unique_violation(error: Exception) -> bool:
     return isinstance(error, APIError) and str(getattr(error, "code", "")) == "23505"
 
 
+def is_missing_column_error(error: Exception, column_name: str) -> bool:
+    if not isinstance(error, APIError):
+        return False
+
+    if str(getattr(error, "code", "")) == "42703":
+        return column_name.lower() in str(getattr(error, "message", "")).lower()
+
+    message = str(getattr(error, "message", "")).lower()
+    return column_name.lower() in message and "column" in message
+
+
 def format_report(record: dict[str, Any]) -> dict[str, Any]:
     status_value = str(record.get("status", "pending")).lower()
     ui_status = {
@@ -417,6 +428,14 @@ def persist_inbound_sms(phone: str, message: str, received_at: Optional[str]) ->
     try:
         supabase.table("reports").insert(record).execute()
     except Exception as error:
+        if is_missing_column_error(error, "source"):
+            legacy_record = dict(record)
+            legacy_record.pop("source", None)
+            try:
+                supabase.table("reports").insert(legacy_record).execute()
+            except Exception as legacy_error:
+                raise_database_error(legacy_error)
+            return
         raise_database_error(error)
 
 
@@ -563,7 +582,15 @@ def create_report(report: ReportCreate) -> dict[str, Any]:
     try:
         response = supabase.table("reports").insert(payload).execute()
     except Exception as error:
-        raise_database_error(error)
+        if is_missing_column_error(error, "source"):
+            legacy_payload = dict(payload)
+            legacy_payload.pop("source", None)
+            try:
+                response = supabase.table("reports").insert(legacy_payload).execute()
+            except Exception as legacy_error:
+                raise_database_error(legacy_error)
+        else:
+            raise_database_error(error)
 
     if not response.data:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create report")
